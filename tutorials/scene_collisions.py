@@ -1,21 +1,14 @@
-import os
-import sys
 import time
 import pickle
-import pathlib
 import argparse
-import copy
-import yaml
 import smplx
 import torch
 import trimesh
 import pyrender
 import numpy as np
 import torch.nn.functional as F
-from pytorch3d import transforms
 
-# from volSMPL import attach_coap
-from volSMPL import attach_coap_plus as attach_coap
+from VolumetricSMPL import attach_volume
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -42,7 +35,7 @@ def visualize(model=None, smpl_output=None, scene_mesh=None, query_samples=None,
         VIEWER.scene.mesh_nodes.pop()
 
     if smpl_output is not None:
-        # posed_mesh = model.coap.extract_mesh(smpl_output, use_mise=True)[0]
+        # posed_mesh = model.volume.extract_mesh(smpl_output, use_mise=True)[0]
         # posed_mesh = trimesh.Trimesh(vertices=posed_mesh.vertices, faces=posed_mesh.faces)
         posed_mesh = trimesh.Trimesh(smpl_output.vertices[0].detach().cpu().numpy(), model.faces)
 
@@ -80,44 +73,17 @@ def sample_scene_points(model, smpl_output, scene_vertices, scene_normals=None, 
     if not inds.any():
         return None
     points = scene_vertices[inds]
-    # model.coap.eval()
-    # colliding_inds = (model.coap.query(points.reshape((1, -1, 3)), smpl_output) > 0.5).reshape(-1)
-    # model.coap.detach_cache()  # detach variables to enable differentiable pass in the opt. loop
-    # if not colliding_inds.any():
-    #     return None
-    # points = points[colliding_inds.reshape(-1)]
-    
-    # if scene_normals is not None and points.size(0) > 0:  # sample extra points if normals are available
-    #     norms = scene_normals[inds][colliding_inds]
-
-    #     offsets = 0.5*torch.normal(0.05, 0.05, size=(points.shape[0]*n_upsample, 1), device=norms.device).abs()
-    #     verts, norms = points.repeat(n_upsample, 1), norms.repeat(n_upsample, 1)
-    #     points = torch.cat((points, (verts - offsets*norms).reshape(-1, 3)), dim=0)
-
-    # if points.shape[0] > max_queries:
-    #     points = points[torch.randperm(points.size(0), device=points.device)[:max_queries]]
-
     return points.float().reshape(1, -1, 3)  # add batch dimension
 
-
-def create_model(bm_dir_path, model_type, checkpoint, gender='neutral', device='cuda'):
-    # create a SMPL body and attach COAP
-    model = smplx.create(model_path=bm_dir_path, model_type=model_type, gender=gender, use_pca=True, num_pca_comps=12, num_betas=10)
-    model = attach_coap(model, pretrained=False, device=device, coap_cfg=coap_cfg)
-    if checkpoint is not None:  # pretrained
-        state_dict = torch.load(checkpoint)
-        model.coap.load_state_dict(state_dict['state_dict'])
-    return model.to(device)
 
 def main():
     # load data sample
     data = load_smpl_data(args.sample_body)
     scene_mesh = trimesh.load_mesh(args.scan_path)
 
-    # create a SMPL body and attach COAP
-    # model = smplx.create(model_path=args.bm_dir_path, model_type=args.model_type, gender=args.gender, num_pca_comps=12)
-    # model = attach_coap(model, pretrained=True, device=args.device)
-    model = create_model(args.bm_dir_path, args.model_type, checkpoint=args.checkpoint)
+    # create a SMPL body and attach volumetric body
+    model = smplx.create(model_path=args.bm_dir_path, model_type=args.model_type, gender='neutral', use_pca=True, num_pca_comps=12, num_betas=10)
+    model = attach_volume(model, pretrained=True, device=args.device)
     
     scene_vertices = torch.from_numpy(scene_mesh.vertices).to(device=args.device, dtype=torch.float)
     scene_normals = torch.from_numpy(np.asarray(scene_mesh.vertex_normals).copy()).to(device=args.device, dtype=torch.float)
@@ -127,7 +93,7 @@ def main():
         data['body_pose'] = torch.cat([data['body_pose'], torch.zeros_like(data['body_pose'][:, -6:])], dim=1)
     smpl_output = model(**data, return_verts=True, return_full_pose=True)
     # NOTE: make sure that smpl_output contains the valid SMPL variables (pose parameters, joints, and vertices). 
-    assert model.joint_mapper is None, 'COAP requires valid SMPL joints as input'
+    assert model.joint_mapper is None, 'requires valid SMPL joints as input'
 
     visualize(model, smpl_output, scene_mesh)
     print('waiting 5 seconds')
@@ -148,7 +114,7 @@ def main():
         if scene_points is None:
             print('No more colliding points')
             break
-        selfpen_loss, _collision_mask = model.coap.collision_loss(scene_points, smpl_output, ret_collision_mask=True)
+        selfpen_loss, _collision_mask = model.volume.collision_loss(scene_points, smpl_output, ret_collision_mask=True)
 
         # visualization and opt step 
         if VISUALIZE:
@@ -174,15 +140,14 @@ def main():
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Tutorial on how to use COAP to avoid collisions with static geometries.')
+    parser = argparse.ArgumentParser('Tutorial on how to use VolumetricSMPL to avoid collisions with static geometries.')
     parser.add_argument('--device', type=str, choices=['cuda', 'cpu'], default='cuda', help='Device (cuda or cpu).')
     
     # SMPL specification
     parser.add_argument('--bm_dir_path', type=str, required=False, default='../COAP_DATA/body_models', help='Directory with SMPL bodies.')
-    parser.add_argument('--checkpoint', type=str, required=False, default=None, help='Directory with SMPL bodies.')
     parser.add_argument('--model_type', type=str, choices=['smpl', 'smplx'], default='smplx', help='SMPL-based body type.')
     parser.add_argument('--gender', type=str, choices=['male', 'female', 'neutral'], default='neutral', help='SMPL gender.')
-    parser.add_argument('--coap_cfg', type=str, required=False, default=None, help='COAP configuration.')
+    parser.add_argument('--VISUALIZE', action='store_true', help='Use winding numbers to sample points.')
 
     # data samples
     parser.add_argument('--scan_path', type=str, default='./samples/scene_collision/raw_kinect_scan/scan.obj', help='Raw scan location.')
@@ -193,11 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.005, type=float, help='Learning rate.')
     args = parser.parse_args()
     
-    with open(args.coap_cfg, 'r') as f:
-        cfg = yaml.safe_load(f)
-    coap_cfg = cfg.get('coap_cfg', {})
-
-    VISUALIZE = False
+    VISUALIZE = args.VISUALIZE
     if VISUALIZE:
         VIEWER = pyrender.Viewer(
             pyrender.Scene(ambient_light=[0.02, 0.02, 0.02], bg_color=[1.0, 1.0, 1.0]), 
@@ -205,6 +166,5 @@ if __name__ == '__main__':
 
     main()
 
-# python scene_collisions.py --bm_dir_path ../COAP_DATA/body_models/ --model_type smplx --checkpoint ./RELEASE/smplx/neutral/last.ckpt  --coap_cfg ./RELEASE/smplx/neutral/coap.yml
-# python scene_collisions.py --bm_dir_path ../COAP_DATA/body_models/ --model_type smpl --checkpoint ./RELEASE/smpl/neutral/last.ckpt  --coap_cfg ./RELEASE/smpl/neutral/coap.yml
-# python scene_collisions.py --bm_dir_path /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx --checkpoint ./RELEASE/smplx/neutral/last.ckpt  --coap_cfg ./RELEASE/smplx/neutral/coap.yml
+# python scene_collisions.py --bm_dir_path  /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx 
+# python scene_collisions.py --bm_dir_path  /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx --VISUALIZE

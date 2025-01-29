@@ -1,8 +1,5 @@
-import os
-import sys
 import time
 import pickle
-import pathlib
 import argparse
 
 import smplx
@@ -12,7 +9,7 @@ import pyrender
 import numpy as np
 import torch.nn.functional as F
 
-from volSMPL import attach_coap
+from VolumetricSMPL import attach_volume
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -75,9 +72,9 @@ def load_smpl_data(pkl_path):
 
 def main():
     # create a SMPL body and attach COAP
-    model = smplx.create(model_path=args.bm_dir_path, model_type=args.model_type, gender=args.gender, num_pca_comps=12)
+    model = smplx.create(model_path=args.bm_dir_path, model_type=args.model_type, gender='neutral', use_pca=True, num_pca_comps=12, num_betas=10)
     assert model.joint_mapper is None, 'COAP requires valid SMPL joints as input'
-    model = attach_coap(model, device=args.device)
+    model = attach_volume(model, device=args.device)
 
     data = load_smpl_data(args.sample_body)
     init_pose = data['body_pose'].detach().clone()
@@ -91,7 +88,7 @@ def main():
         # NOTE: make sure that smpl_output contains the valid SMPL variables (pose parameters, joints, and vertices). 
 
         # compute self collision loss
-        selfpen_loss, _samples = model.coap.self_collision_loss(smpl_output, ret_samples=True)
+        selfpen_loss, _samples = model.volume.self_collision_loss(smpl_output, ret_samples=True)
 
         # pose prior
         pose_prior_loss = args.pose_prior_weight*F.mse_loss(init_pose, data['body_pose'])
@@ -126,7 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('--gender', type=str, choices=['male', 'female', 'neutral'], default='neutral', help='SMPL gender.')
 
     # data samples
-    parser.add_argument('--sample_body', type=str, default='./samples/scene_collision/selfpen_examples/001.pkl', help='SMPL parameters.')
+    parser.add_argument('--sample_body', type=str, default='./samples/selfpen_examples/001.pkl', help='SMPL parameters.')
 
     parser.add_argument('--max_iters', default=200, type=int, help='The maximum number of optimization steps.')
     parser.add_argument('--lr', default=0.00001, type=float, help='Learning rate.')

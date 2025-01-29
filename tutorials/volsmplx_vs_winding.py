@@ -1,5 +1,3 @@
-from intersection import winding_numbers
-
 import time
 import torch
 import argparse
@@ -10,6 +8,7 @@ import tqdm
 import trimesh
 
 from VolumetricSMPL import attach_volume
+from VolumetricSMPL import winding_numbers
 from time import perf_counter
 
 torch.manual_seed(0)
@@ -65,25 +64,25 @@ def load_smpl_data(pkl_path):
     return torch_param
 
 @torch.no_grad()
-def main(num_iters=100):
+def main():
     # Load SMPL model
     data = load_smpl_data(args.sample_body)
     scene_mesh = trimesh.load_mesh(args.scan_path)
 
     # create a SMPL body and attach volumetric body
     model = smplx.create(model_path=args.bm_dir_path, model_type=args.model_type, gender='neutral', use_pca=True, num_pca_comps=12, num_betas=10)
-    model = attach_volume(model, pretrained=False, device=DEVICE)
+    model = attach_volume(model, pretrained=True, device=DEVICE)
 
     if args.model_type == 'smpl': # padd the sequence with flat hands since data is for smplx
         data['body_pose'] = torch.cat([data['body_pose'], torch.zeros_like(data['body_pose'][:, -6:])], dim=1)
     # make sure that smpl_output contains the valid SMPL variables (pose parameters, joints, and vertices). 
-    assert model.joint_mapper is None, 'COAP requires valid SMPL joints as input'
+    assert model.joint_mapper is None, 'Volumetric Body requires valid SMPL joints as input'
 
     SMPL_FACES = torch.tensor(model.faces.astype(np.int64)).to(device=DEVICE)
     # benchmark the forward pass
     sync_times, max_memory = [], []
     print('Running the benchmark...')
-    for step in tqdm.tqdm(range(num_iters)):
+    for step in tqdm.tqdm(range(args.num_iters)):
         # add random noise to the pose parameters
         data['body_pose'] = data['body_pose'].detach().clone() + 0.01 * torch.randn_like(data['body_pose'])
         data['betas'] = data['betas'].detach().clone() + 0.01 * torch.randn_like(data['betas'])
@@ -122,15 +121,13 @@ def main(num_iters=100):
         VIEWER.close_external()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Tutorial on how to use COAP to avoid collisions with static geometries.')
+    parser = argparse.ArgumentParser('Comparing the inference speed and GPU memory consumption of VolumetricSMPL vs winding numbers.')
     parser.add_argument('--device', type=str, choices=['cuda', 'cpu'], default='cuda', help='Device (cuda or cpu).')
     
     # SMPL specification
     parser.add_argument('--bm_dir_path', type=str, required=False, default='../COAP_DATA/body_models', help='Directory with SMPL bodies.')
-    parser.add_argument('--checkpoint', type=str, required=False, default=None, help='Directory with SMPL bodies.')
     parser.add_argument('--model_type', type=str, choices=['smpl', 'smplx'], default='smplx', help='SMPL-based body type.')
     parser.add_argument('--gender', type=str, choices=['male', 'female', 'neutral'], default='neutral', help='SMPL gender.')
-    # parser.add_argument('--coap_cfg', type=str, required=False, default=None, help='COAP configuration.')
     parser.add_argument('--use_winding', action='store_true', help='Use winding numbers to sample points.')
     parser.add_argument('--VISUALIZE', action='store_true', help='Use winding numbers to sample points.')
 
@@ -139,15 +136,11 @@ if __name__ == '__main__':
     parser.add_argument('--sample_body', type=str, default='./samples/scene_collision/sample_bodies/frame_01743.pkl', help='SMPL parameters.')
 
     # optimization related
-    parser.add_argument('--max_iters', default=200, type=int, help='The maximum number of optimization steps.')
+    parser.add_argument('--num_iters', default=100, type=int, help='The maximum number of optimization steps.')
     parser.add_argument('--lr', default=0.005, type=float, help='Learning rate.')
     args = parser.parse_args()
     DEVICE = torch.device('cuda:0')
     
-    # with open(args.coap_cfg, 'r') as f:
-    #     cfg = yaml.safe_load(f)
-    # coap_cfg = cfg.get('coap_cfg', {})
-
     VISUALIZE = args.VISUALIZE
     if VISUALIZE:
         import pyrender
@@ -157,5 +150,5 @@ if __name__ == '__main__':
 
     main()
 
-# python volsmplx_vs_winding.py --bm_dir_path /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx --checkpoint ./RELEASE/smplx/neutral/last.ckpt  --coap_cfg ./RELEASE/smplx/neutral/coap.yml
-# python volsmplx_vs_winding.py --use_winding --bm_dir_path /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx --checkpoint ./RELEASE/smplx/neutral/last.ckpt  --coap_cfg ./RELEASE/smplx/neutral/coap.yml
+# python volsmplx_vs_winding.py --bm_dir_path /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx
+# python volsmplx_vs_winding.py --use_winding --bm_dir_path /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx
