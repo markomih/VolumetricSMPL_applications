@@ -35,8 +35,12 @@ def visualize(model, smpl_output, samples=None):
     while len(VIEWER.scene.mesh_nodes) > 0:
         VIEWER.scene.mesh_nodes.pop()
 
-    posed_mesh = trimesh.Trimesh(smpl_output.vertices[0].detach().cpu().numpy(), model.faces)
-    posed_mesh.visual.vertex_colors = (0.3, 0.3, 0.3, 0.8)
+    if smpl_output is not None:
+        posed_mesh = model.volume.extract_mesh(smpl_output, use_mise=True)[0]
+        # posed_mesh = trimesh.Trimesh(vertices=posed_mesh.vertices, faces=posed_mesh.faces)
+        # posed_mesh = trimesh.Trimesh(smpl_output.vertices[0].detach().cpu().numpy(), model.faces)
+        posed_mesh.visual.vertex_colors = [0.0, 0.5, 1.0, 0.5]  # RGBA with alpha = 0.5 for transparency
+        VIEWER.scene.add(pyrender.Mesh.from_trimesh(posed_mesh))
 
     # update scene
     VIEWER.scene.add(pyrender.Mesh.from_trimesh(posed_mesh))
@@ -98,8 +102,8 @@ def main():
         loss = selfpen_loss + pose_prior_loss
         if VISUALIZE:
             visualize(model, smpl_output, _samples[0])
-            print('iter ', step, ':\t', selfpen_loss.item(), ':\t', pose_prior_loss.item(), '\tWaiting 0.5s')
-            time.sleep(1.4)
+            print('iter ', step, ':\t', selfpen_loss.item(), ':\t', pose_prior_loss.item(), '\tWaiting 0.4s')
+            time.sleep(0.4)
         
         if selfpen_loss < 0.5:
             print('Converged')
@@ -110,7 +114,8 @@ def main():
     visualize(model, smpl_output)
     print('exiting in 10 seconds')
     time.sleep(10)
-    VIEWER.close_external()
+    if VISUALIZE:
+        VIEWER.close_external()
 
 
 if __name__ == '__main__':
@@ -121,18 +126,20 @@ if __name__ == '__main__':
     parser.add_argument('--bm_dir_path', type=str, required=True, help='Directory with SMPL bodies.')
     parser.add_argument('--model_type', type=str, choices=['smpl', 'smplx'], default='smplx', help='SMPL-based body type.')
     parser.add_argument('--gender', type=str, choices=['male', 'female', 'neutral'], default='neutral', help='SMPL gender.')
+    parser.add_argument('--VISUALIZE', action='store_true', help='Use winding numbers to sample points.')
 
     # data samples
     parser.add_argument('--sample_body', type=str, default='./samples/selfpen_examples/001.pkl', help='SMPL parameters.')
 
     parser.add_argument('--max_iters', default=200, type=int, help='The maximum number of optimization steps.')
     parser.add_argument('--lr', default=0.00001, type=float, help='Learning rate.')
-    parser.add_argument('--pose_prior_weight', default=1e3, type=float, help='Weight for the pose prior term (discourages large deviations from the initial pose).')
+    parser.add_argument('--pose_prior_weight', default=1e2, type=float, help='Weight for the pose prior term (discourages large deviations from the initial pose).')
     parser.add_argument('--selfpen_weight', default=0.1, type=float, help='Weight for the self-penetration term.')
     
     args = parser.parse_args()
-    VISUALIZE = True
+    VISUALIZE = args.VISUALIZE
     if VISUALIZE:
         _scene = pyrender.Scene(ambient_light=[.1, 0.1, 0.1], bg_color=[1.0, 1.0, 1.0])
         VIEWER = pyrender.Viewer(_scene, use_raymond_lighting=True, run_in_thread=True)
     main()
+# python untangle_body.py --bm_dir_path  /media/STORAGE_4TB/COAP_DATA/body_models/ --model_type smplx
