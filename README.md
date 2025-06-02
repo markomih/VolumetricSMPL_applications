@@ -38,23 +38,13 @@ model.volume.collision_loss(smpl_output, scan_point_cloud)  # Compute collisions
 ## Tutorials & Examples
 The [`tutorials`](./tutorials) directory contains toy examples demonstrating how to use **VolumetricSMPL** for:
 - **Human-scene interaction**: Evaluating spatial relationships between humans and environments.
-- **Collision detection**: Comparing **VolumetricSMPL**'s approach to alternative techniques such as winding numbers.
 - **Self-intersections**: Detecting and mitigating self-penetrations in posed bodies.
 
-## Applications (🚧 Work in Progress)
-We aim to provide in-depth examples across the following domains:
+### Scene-condition Text-Driven Motion Control
+To run this application presented in the paper, please follow instructions [here](https://github.com/zkf1997/DART/tree/main/VolSMPL). 
 
-### 🏠 Human-Scene Interaction
-- Detecting collisions between a human body and static or dynamic environments.
-- Computing penetration metrics for scene-aware motion generation.
-
-### 🏋️‍♂️ Human-Object Interaction
-- Simulating physical interactions between the body and various objects.
-- Enabling volumetric constraints for physics-based animation.
-
-### 👫 Human-Human Interaction
-- Handling multiple interacting bodies in shared spaces.
-- Evaluating self- and inter-body penetration loss terms.
+### Scene-condition Human Mesh Recovery from EgoCentric Views 
+To run this application presented in the paper, please follow instructions [here](https://github.com/sanweiliti/EgoHMR). 
 
 ## Contact
 For questions, please open an issue on GitHub.
